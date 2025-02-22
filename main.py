@@ -12,9 +12,6 @@ from tenacity import retry, wait_exponential, stop_after_attempt
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from telegram.error import TelegramError
-from keep_alive import keep_alive
-
-keep_alive()
 
 # Ensure required package is installed
 try:
