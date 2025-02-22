@@ -1,0 +1,6 @@
+requests
+pytz
+bs4
+tenacity
+python-telegram-bot
+apscheduler
