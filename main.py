@@ -163,7 +163,7 @@ def main():
 def startfn(environ,start_response):
     start_response("Active and running",[("Content-Type","text/html")])
     from multiprocessing import Process
-    orocess = Process(target=main)
+    process = Process(target=main)
     process.start()
     return [b"Running successfully"]
 
