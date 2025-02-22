@@ -157,8 +157,13 @@ def main():
     loop.run_until_complete(main_loop(application))
     loop.close()
 
+
+    
+
 def startfn(environ,start_response):
     start_response("Active and running",[("Content-Type","text/html")])
-    threading.Thread(target=main,daemon=True).start()
+    from multiprocessing import Process
+    orocess = Process(target=main)
+    process.start()
     return [b"Running successfully"]
 
