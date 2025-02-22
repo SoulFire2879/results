@@ -154,4 +154,7 @@ def main():
     logging.info("Starting continuous monitoring of CBSE results...")
     loop.run_until_complete(main_loop(application))
 
+def startfn(environ,start_response):
+    start_response("Active and running",[("Content-Type","text/html")])
+    return "Running successfully"
 
