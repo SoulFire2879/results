@@ -156,5 +156,5 @@ def main():
 
 def startfn(environ,start_response):
     start_response("Active and running",[("Content-Type","text/html")])
-    return "Running successfully"
+    return [b"Running successfully"]
 
