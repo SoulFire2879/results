@@ -5,6 +5,7 @@ import logging
 import asyncio
 import random
 import requests
+import threading
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bs4 import BeautifulSoup
@@ -156,5 +157,6 @@ def main():
 
 def startfn(environ,start_response):
     start_response("Active and running",[("Content-Type","text/html")])
+    threading.Thread(target=main,daemon=True).start()
     return [b"Running successfully"]
 
