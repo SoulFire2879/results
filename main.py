@@ -11,6 +11,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from tenacity import retry, stop_after_attempt, wait_exponential
 import pytz
 import tornado.web
+import tornado.escape
+from tornado.platform.asyncio import AsyncIOMainLoop
 
 # Configuration
 CBSE_DOMAINS = [
@@ -32,10 +34,25 @@ USER_AGENTS = [
 ]
 
 logging.basicConfig(level=logging.INFO,
-                   format="%(asctime)s - %(levelname)s - %(message)s")
+                    format="%(asctime)s - %(levelname)s - %(message)s")
 
 class HealthCheckHandler(tornado.web.RequestHandler):
     def get(self):
+        self.write("OK")
+        self.set_status(200)
+
+class WebhookHandler(tornado.web.RequestHandler):
+    async def post(self):
+        try:
+            data = self.request.body.decode("utf-8")
+            json_data = tornado.escape.json_decode(data)
+        except Exception as e:
+            logging.error(f"Error parsing JSON: {e}")
+            self.set_status(400)
+            return
+        update = Update.de_json(json_data, self.application.tg_app.bot)
+        # Process the update asynchronously
+        asyncio.create_task(self.application.tg_app.process_update(update))
         self.write("OK")
         self.set_status(200)
 
@@ -45,39 +62,33 @@ class ResultMonitor:
         self.consecutive_fails = 0
         self.scheduler = AsyncIOScheduler(timezone=pytz.UTC)
         self.tg_app = Application.builder().token(BOT_TOKEN).build()
-        
-        # Create custom Tornado web application
+        # Register Telegram command handlers
+        self.tg_app.add_handler(CommandHandler("start", self.start))
+        self.tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.check_alive))
+        # Create Tornado web application and attach the Telegram app to it
         self.web_app = tornado.web.Application([
             (r"/", HealthCheckHandler),
-            (r"/webhook", self.tg_app.updater.dispatcher.process_webhook_update)
+            (r"/webhook", WebhookHandler)
         ])
+        self.web_app.tg_app = self.tg_app
 
     async def init(self):
-        await self.setup_handlers()
-        self.setup_scheduler()
-        
-        # Configure webhook with custom web application
-        await self.tg_app.updater.start_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            web_app=self.web_app
-        )
+        # Register the webhook with Telegram
         await self.tg_app.bot.set_webhook(WEBHOOK_URL)
-        logging.info("Telegram webhook configured")
-
-    async def get_chat_id(self, update: Update):
-        if not self.chat_id:
-            self.chat_id = update.effective_chat.id
-            logging.info(f"Registered Chat ID: {self.chat_id}")
+        logging.info(f"Webhook set to: {WEBHOOK_URL}")
+        # Start the scheduler job
+        self.setup_scheduler()
 
     async def start(self, update: Update, context: CallbackContext):
-        await self.get_chat_id(update)
+        self.chat_id = update.effective_chat.id
         await update.message.reply_text("CBSE Result Bot Active! Monitoring every 5 minutes.")
 
     async def check_alive(self, update: Update, context: CallbackContext):
-        await self.get_chat_id(update)
-        await update.message.reply_text("✅ Bot is running! Last check: " + 
-                                      self.scheduler.get_job("result_check").next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC"))
+        if self.chat_id and self.scheduler.get_job("result_check"):
+            next_run = self.scheduler.get_job("result_check").next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+            await update.message.reply_text(f"✅ Bot is running! Next check at: {next_run}")
+        else:
+            await update.message.reply_text("No chat registered yet.")
 
     async def send_alert(self, message: str):
         if self.chat_id:
@@ -87,7 +98,8 @@ class ResultMonitor:
             except Exception as e:
                 logging.error(f"Failed to send alert: {e}")
 
-    @retry(wait=wait_exponential(multiplier=1, min=10, max=60), stop=stop_after_attempt(MAX_RETRIES))
+    @retry(wait=wait_exponential(multiplier=1, min=10, max=60),
+           stop=stop_after_attempt(MAX_RETRIES))
     def fetch_page(self, url: str):
         headers = {"User-Agent": random.choice(USER_AGENTS)}
         response = requests.get(url, headers=headers, timeout=15)
@@ -97,7 +109,8 @@ class ResultMonitor:
     def find_results_url(self):
         for domain in CBSE_DOMAINS:
             try:
-                soup = BeautifulSoup(self.fetch_page(domain), "html.parser")
+                content = self.fetch_page(domain)
+                soup = BeautifulSoup(content, "html.parser")
                 for link in soup.find_all("a", href=True):
                     href = link["href"].lower()
                     if any(kw in href for kw in ["cbse12thlogin", "class12", "senior secondary"]):
@@ -111,7 +124,6 @@ class ResultMonitor:
             results_url = self.find_results_url()
             if not results_url:
                 return
-
             content = self.fetch_page(results_url)
             if any(kw in content.lower() for kw in ["roll number", "application number", "result"]):
                 await self.send_alert(f"🚨 CBSE 12th Results 2025 ARE LIVE!\n{results_url}")
@@ -119,10 +131,8 @@ class ResultMonitor:
                 self.scheduler.remove_job("result_check")
             else:
                 self.consecutive_fails += 1
-
             interval = FAST_CHECK_INTERVAL if self.consecutive_fails >= 3 else CHECK_INTERVAL
             self.scheduler.modify_job("result_check", trigger="interval", seconds=interval)
-
         except Exception as e:
             logging.error(f"Check failed: {e}")
             self.consecutive_fails += 1
@@ -138,13 +148,12 @@ class ResultMonitor:
         self.scheduler.start()
         logging.info("Scheduler started")
 
-    async def setup_handlers(self):
-        self.tg_app.add_handler(CommandHandler("start", self.start))
-        self.tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.check_alive))
-
 async def main():
+    AsyncIOMainLoop().install()  # Install Tornado's AsyncIO event loop
     monitor = ResultMonitor()
     await monitor.init()
+    monitor.web_app.listen(PORT)
+    logging.info(f"Tornado server listening on port {PORT}")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
