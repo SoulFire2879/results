@@ -5,4 +5,5 @@ tenacity
 python-telegram-bot
 apscheduler
 aiohttp==3.8.5
+python-telegram-bot[webhooks]
 
