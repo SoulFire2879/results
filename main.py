@@ -5,7 +5,6 @@ import logging
 import asyncio
 import random
 import requests
-import threading
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bs4 import BeautifulSoup
@@ -18,19 +17,18 @@ from telegram.error import TelegramError
 try:
     import telegram
 except ImportError:
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "python-telegram-bot==20.0"])
+    subprocess.run([sys.executable, "-m", "pip", "install", "python-telegram-bot==20.0"])
 
 # Configuration
 CBSE_DOMAINS = [
-    "https://cbseresults.nic.in/", "https://results.cbse.gov.in/",
+    "https://cbseresults.nic.in/",
+    "https://results.cbse.gov.in/",
     "https://cbse.gov.in/cbsenew/results.html"
 ]
 
-BOT_TOKEN = (os.environ.get("token")).strip()
+BOT_TOKEN = os.environ.get("token", "").strip()
 if not BOT_TOKEN:
-    raise ValueError(
-        "Telegram Bot Token is missing! Set it as an environment variable.")
+    raise ValueError("Telegram Bot Token is missing! Set it as an environment variable.")
 
 CHECK_INTERVAL = 300
 FAST_CHECK_INTERVAL = 30
@@ -41,8 +39,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
 ]
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 CHAT_ID = None
 
 async def start(update: Update, context: CallbackContext):
@@ -93,8 +90,7 @@ def get_latest_results_url():
                     return href
         except Exception as e:
             logging.error("Error processing domain %s: %s", domain, e)
-    logging.critical(
-        "Could not determine a valid results URL from any domain.")
+    logging.critical("Could not determine a valid results URL from any domain.")
     return None
 
 async def check_results(application: Application):
@@ -107,7 +103,8 @@ async def check_results(application: Application):
         if "Roll Number" in html or "Application Number" in html or "Result" in html:
             await send_telegram_alert(
                 application,
-                f"🚨 CBSE 12th Results are LIVE! Check: {results_url}")
+                f"🚨 CBSE 12th Results are LIVE! Check: {results_url}"
+            )
             return True
     except Exception as e:
         logging.error("Error checking results on %s: %s", results_url, e)
@@ -129,25 +126,28 @@ async def main_loop(application: Application):
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, check_alive))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_alive))
+    
+    # This callback is run when the webhook server starts.
+    async def on_startup(app: Application):
+        await get_chat_id(app)
+        # Start the continuous monitoring in the background.
+        asyncio.create_task(main_loop(app))
+    
+    # Retrieve webhook URL and port from environment variables.
+    WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").strip()  # e.g., https://your-app.onrender.com
+    if not WEBHOOK_URL:
+        raise ValueError("WEBHOOK_URL environment variable is not set!")
+    PORT = int(os.environ.get("PORT", "8443"))
+    
+    # Run the bot as a webhook server.
+    application.run_webhook(
+         listen="0.0.0.0",
+         port=PORT,
+         url_path=BOT_TOKEN,
+         webhook_url=f"{WEBHOOK_URL}/{BOT_TOKEN}",
+         on_startup=on_startup
+    )
 
-    scheduler = AsyncIOScheduler(timezone=pytz.utc)
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, check_alive))
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(get_chat_id(application))
-    application.run_polling()
-    logging.info("Starting continuous monitoring of CBSE results...")
-    loop.run_until_complete(main_loop(application))
-    loop.close()
-
-def startfn(environ, start_response):
-    start_response("Active and running", [("Content-Type", "text/html")])
-    from multiprocessing import Process
-    process = Process(target=main)
-    process.start()
-    return [b"Running successfully"]
+if __name__ == "__main__":
+    main()
