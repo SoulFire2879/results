@@ -73,10 +73,11 @@ class ResultMonitor:
         self.web_app.tg_app = self.tg_app
 
     async def init(self):
-        # Register the webhook with Telegram
+        # Initialize the telegram application properly
+        await self.tg_app.initialize()
+        # Set webhook with Telegram
         await self.tg_app.bot.set_webhook(WEBHOOK_URL)
         logging.info(f"Webhook set to: {WEBHOOK_URL}")
-        # Start the scheduler job
         self.setup_scheduler()
 
     async def start(self, update: Update, context: CallbackContext):
@@ -149,7 +150,7 @@ class ResultMonitor:
         logging.info("Scheduler started")
 
 async def main():
-    AsyncIOMainLoop().install()  # Install Tornado's AsyncIO event loop
+    AsyncIOMainLoop().install()  # Install Tornado's AsyncIO event loop integration
     monitor = ResultMonitor()
     await monitor.init()
     monitor.web_app.listen(PORT)
