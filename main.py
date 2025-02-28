@@ -30,8 +30,7 @@ BOT_TOKEN = os.environ.get("token", "").strip()
 if not BOT_TOKEN:
     raise ValueError("Telegram Bot Token is missing! Set it as an environment variable.")
 
-# WEBHOOK_URL must be your publicly accessible HTTPS URL (without a trailing slash)
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").strip()
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").strip()  # Public HTTPS URL without trailing slash
 if not WEBHOOK_URL:
     raise ValueError("WEBHOOK_URL environment variable is not set!")
 
@@ -46,24 +45,18 @@ USER_AGENTS = [
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
-CHAT_ID = None
+CHAT_ID = None  # Will be set when a user interacts with the bot
 
 # Telegram handlers
 async def start(update: Update, context: CallbackContext):
+    global CHAT_ID
+    # Save chat id for alerting
+    CHAT_ID = update.message.chat.id
     await update.message.reply_text("Bot is alive! Send 'hi' to check.")
 
 async def check_alive(update: Update, context: CallbackContext):
     if update.message.text.lower() == "hi":
         await update.message.reply_text("I'm alive!")
-
-async def get_chat_id(app: Application):
-    global CHAT_ID
-    updates = await app.bot.get_updates()
-    if updates:
-        CHAT_ID = updates[-1].message.chat.id
-        logging.info("Found Chat ID: %s", CHAT_ID)
-    else:
-        logging.info("No chat message yet; please send a message to the bot.")
 
 async def send_telegram_alert(app: Application, message):
     if CHAT_ID is None:
@@ -132,7 +125,7 @@ telegram_app = Application.builder().token(BOT_TOKEN).build()
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_alive))
 
-# Define an aiohttp handler for webhook updates
+# Aiohttp handler for incoming webhook updates from Telegram
 async def webhook_handler(request: web.Request):
     try:
         data = await request.json()
@@ -140,23 +133,22 @@ async def webhook_handler(request: web.Request):
         logging.error("Error parsing JSON: %s", e)
         return web.Response(status=400)
     update = Update.de_json(data, telegram_app.bot)
-    # Process the update asynchronously (do not await so as not to block the response)
     asyncio.create_task(telegram_app.process_update(update))
     return web.Response(status=200)
 
-# Create the aiohttp web application and register the route for webhook updates
+# Create the aiohttp web application and register the webhook route
 aio_app = web.Application()
 aio_app.router.add_post(f"/{BOT_TOKEN}", webhook_handler)
 
-# on_startup: register the webhook with Telegram and start background tasks
+# on_startup: register the webhook and start background tasks
 async def on_startup(app):
     webhook_url = f"{WEBHOOK_URL}/{BOT_TOKEN}"
     await telegram_app.bot.set_webhook(webhook_url)
     logging.info("Webhook set to: %s", webhook_url)
-    await get_chat_id(telegram_app)
+    # Do not call get_updates; rely on webhook mode.
     asyncio.create_task(main_loop(telegram_app))
 
-# on_shutdown: remove the webhook
+# on_shutdown: delete the webhook
 async def on_shutdown(app):
     await telegram_app.bot.delete_webhook()
     logging.info("Webhook deleted")
@@ -164,9 +156,9 @@ async def on_shutdown(app):
 aio_app.on_startup.append(on_startup)
 aio_app.on_shutdown.append(on_shutdown)
 
-# Export the aiohttp application as "app" for Gunicorn
+# Export the aiohttp app as "app" for Gunicorn deployment
 app = aio_app
 
-# For local testing you can run:
+# For local testing:
 if __name__ == "__main__":
     web.run_app(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8443)))
