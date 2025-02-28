@@ -60,7 +60,7 @@ class ResultMonitor:
     def __init__(self):
         self.chat_id = None
         self.consecutive_fails = 0
-        self.scheduler = AsyncIOScheduler(timezone=pytz.UTC)
+        self.scheduler = AsyncIOScheduler(timezone=pytz.timezone("Asia/Kolkata"))
         self.tg_app = Application.builder().token(BOT_TOKEN).build()
         # Register Telegram command handlers
         self.tg_app.add_handler(CommandHandler("start", self.start))
