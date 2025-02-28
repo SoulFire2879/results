@@ -26,8 +26,10 @@ CBSE_DOMAINS = [
     "https://cbseresults.nic.in/", "https://results.cbse.gov.in/",
     "https://cbse.gov.in/cbsenew/results.html"
 ]
+print(CBSE_DOMAINS)
 
 BOT_TOKEN = os.environ.get("token")
+print(BOT_TOKEN)
 if not BOT_TOKEN:
     raise ValueError(
         "Telegram Bot Token is missing! Set it as an environment variable.")
