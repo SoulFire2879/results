@@ -5,3 +5,4 @@ tenacity
 python-telegram-bot
 apscheduler
 aiohttp
+quart==0.18.4
