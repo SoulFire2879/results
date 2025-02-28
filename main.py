@@ -14,6 +14,7 @@ import tornado.web
 import tornado.escape
 from tornado.platform.asyncio import AsyncIOMainLoop
 
+
 # Configuration
 CBSE_DOMAINS = [
     "https://cbseresults.nic.in/",
