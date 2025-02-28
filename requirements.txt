@@ -4,5 +4,5 @@ bs4
 tenacity
 python-telegram-bot
 apscheduler
-aiohttp
-quart==0.18.4
+aiohttp==3.8.5
+
