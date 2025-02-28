@@ -2,7 +2,7 @@ requests
 pytz
 bs4
 tenacity
-python-telegram-bot
+python-telegram-bot==20.0
 apscheduler
 aiohttp==3.8.5
 tornado==6.3.3
