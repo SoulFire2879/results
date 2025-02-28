@@ -26,10 +26,8 @@ CBSE_DOMAINS = [
     "https://cbseresults.nic.in/", "https://results.cbse.gov.in/",
     "https://cbse.gov.in/cbsenew/results.html"
 ]
-print(CBSE_DOMAINS)
 
 BOT_TOKEN = os.environ.get("token")
-print(BOT_TOKEN)
 if not BOT_TOKEN:
     raise ValueError(
         "Telegram Bot Token is missing! Set it as an environment variable.")
@@ -47,15 +45,12 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 CHAT_ID = None
 
-
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text("Bot is alive! Send 'hi' to check.")
-
 
 async def check_alive(update: Update, context: CallbackContext):
     if update.message.text.lower() == "hi":
         await update.message.reply_text("I'm alive!")
-
 
 async def get_chat_id(application: Application):
     global CHAT_ID
@@ -65,7 +60,6 @@ async def get_chat_id(application: Application):
         logging.info("Found Chat ID: %s", CHAT_ID)
     else:
         logging.info("No chat message yet; please send a message to the bot.")
-
 
 async def send_telegram_alert(application: Application, message):
     if CHAT_ID is None:
@@ -77,15 +71,13 @@ async def send_telegram_alert(application: Application, message):
     except TelegramError as e:
         logging.error("Telegram send error: %s", e)
 
-
 @retry(wait=wait_exponential(multiplier=1, min=10, max=60),
        stop=stop_after_attempt(MAX_RETRIES))
 def fetch_page(url):
     headers = {"User-Agent": random.choice(USER_AGENTS)}
-    response = requests.get(url, headers=headers, timeout=10)
+    response = requests.get(url.strip(), headers=headers, timeout=10)
     response.raise_for_status()
     return response.text
-
 
 def get_latest_results_url():
     for domain in CBSE_DOMAINS:
@@ -93,7 +85,7 @@ def get_latest_results_url():
             html = fetch_page(domain)
             soup = BeautifulSoup(html, "html.parser")
             for link in soup.find_all("a", href=True):
-                href = link["href"]
+                href = link["href"].strip()
                 if "CBSE12thLogin" in href or "class12" in href or "Senior Secondary" in link.text:
                     if not href.startswith("http"):
                         href = domain.rstrip("/") + "/" + href.lstrip("/")
@@ -104,7 +96,6 @@ def get_latest_results_url():
     logging.critical(
         "Could not determine a valid results URL from any domain.")
     return None
-
 
 async def check_results(application: Application):
     results_url = get_latest_results_url()
@@ -122,7 +113,6 @@ async def check_results(application: Application):
         logging.error("Error checking results on %s: %s", results_url, e)
     return False
 
-
 async def main_loop(application: Application):
     consecutive_fails = 0
     while True:
@@ -134,9 +124,7 @@ async def main_loop(application: Application):
             logging.critical("Unexpected error in main loop: %s", e)
         interval = CHECK_INTERVAL if consecutive_fails < 3 else FAST_CHECK_INTERVAL
         await asyncio.sleep(interval)
-        consecutive_fails = (consecutive_fails +
-                             1) if not await check_results(application) else 0
-
+        consecutive_fails = (consecutive_fails + 1) if not await check_results(application) else 0
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
@@ -144,9 +132,7 @@ def main():
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, check_alive))
 
-    scheduler = AsyncIOScheduler(
-        timezone=pytz.utc)  # Change 'utc' to your preferred timezone
-
+    scheduler = AsyncIOScheduler(timezone=pytz.utc)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, check_alive))
@@ -159,13 +145,9 @@ def main():
     loop.run_until_complete(main_loop(application))
     loop.close()
 
-
-    
-
-def startfn(environ,start_response):
-    start_response("Active and running",[("Content-Type","text/html")])
+def startfn(environ, start_response):
+    start_response("Active and running", [("Content-Type", "text/html")])
     from multiprocessing import Process
     process = Process(target=main)
     process.start()
     return [b"Running successfully"]
-
