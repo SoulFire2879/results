@@ -1,4 +1,4 @@
-import os
+    import os
 import sys
 import subprocess
 import logging
@@ -6,7 +6,6 @@ import asyncio
 import random
 import requests
 import pytz
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from bs4 import BeautifulSoup
 from tenacity import retry, wait_exponential, stop_after_attempt
 from telegram import Update
@@ -31,6 +30,11 @@ BOT_TOKEN = os.environ.get("token", "").strip()
 if not BOT_TOKEN:
     raise ValueError("Telegram Bot Token is missing! Set it as an environment variable.")
 
+# WEBHOOK_URL must be your publicly accessible HTTPS URL (without a trailing slash)
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").strip()
+if not WEBHOOK_URL:
+    raise ValueError("WEBHOOK_URL environment variable is not set!")
+
 CHECK_INTERVAL = 300
 FAST_CHECK_INTERVAL = 30
 MAX_RETRIES = 5
@@ -44,6 +48,7 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 CHAT_ID = None
 
+# Telegram handlers
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text("Bot is alive! Send 'hi' to check.")
 
@@ -122,28 +127,46 @@ async def main_loop(app: Application):
         await asyncio.sleep(interval)
         consecutive_fails = (consecutive_fails + 1) if not await check_results(app) else 0
 
-async def init_app():
-    # Create the telegram bot Application.
-    telegram_app = Application.builder().token(BOT_TOKEN).build()
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_alive))
-    
-    # Define on_startup callback: get chat id and start the monitoring loop.
-    async def on_startup(_):
-        await get_chat_id(telegram_app)
-        asyncio.create_task(main_loop(telegram_app))
-    
-    # Create an aiohttp.web.Application for webhook handling.
-    aio_app = telegram_app.create_webhook_app(
-        webhook_path=BOT_TOKEN,  # Using the bot token as a secure, unique webhook path.
-        on_startup=on_startup,
-        on_shutdown=telegram_app.stop
-    )
-    return aio_app
+# Create the Telegram Application (bot)
+telegram_app = Application.builder().token(BOT_TOKEN).build()
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_alive))
 
-# Export the aiohttp application callable as "app"
-app = asyncio.run(init_app())
+# Define an aiohttp handler for webhook updates
+async def webhook_handler(request: web.Request):
+    try:
+        data = await request.json()
+    except Exception as e:
+        logging.error("Error parsing JSON: %s", e)
+        return web.Response(status=400)
+    update = Update.de_json(data, telegram_app.bot)
+    # Process the update asynchronously (do not await so as not to block the response)
+    asyncio.create_task(telegram_app.process_update(update))
+    return web.Response(status=200)
 
-# For local testing, you can run: python main.py
+# Create the aiohttp web application and register the route for webhook updates
+aio_app = web.Application()
+aio_app.router.add_post(f"/{BOT_TOKEN}", webhook_handler)
+
+# on_startup: register the webhook with Telegram and start background tasks
+async def on_startup(app):
+    webhook_url = f"{WEBHOOK_URL}/{BOT_TOKEN}"
+    await telegram_app.bot.set_webhook(webhook_url)
+    logging.info("Webhook set to: %s", webhook_url)
+    await get_chat_id(telegram_app)
+    asyncio.create_task(main_loop(telegram_app))
+
+# on_shutdown: remove the webhook
+async def on_shutdown(app):
+    await telegram_app.bot.delete_webhook()
+    logging.info("Webhook deleted")
+
+aio_app.on_startup.append(on_startup)
+aio_app.on_shutdown.append(on_shutdown)
+
+# Export the aiohttp application as "app" for Gunicorn
+app = aio_app
+
+# For local testing you can run:
 if __name__ == "__main__":
     web.run_app(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8443)))
