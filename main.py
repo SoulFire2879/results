@@ -10,7 +10,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from tenacity import retry, stop_after_attempt, wait_exponential
 import pytz
-from aiohttp import web
+import tornado.web
 
 # Configuration
 CBSE_DOMAINS = [
@@ -19,7 +19,7 @@ CBSE_DOMAINS = [
     "https://cbse.gov.in/cbsenew/results.html"
 ]
 
-BOT_TOKEN = os.environ.get("token")
+BOT_TOKEN = os.environ.get("token").strip()
 PORT = int(os.environ.get("PORT", 5000))
 WEBHOOK_URL = f"{os.environ.get('RENDER_EXTERNAL_URL')}/webhook"
 
@@ -34,37 +34,36 @@ USER_AGENTS = [
 logging.basicConfig(level=logging.INFO,
                    format="%(asctime)s - %(levelname)s - %(message)s")
 
+class HealthCheckHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.write("OK")
+        self.set_status(200)
+
 class ResultMonitor:
     def __init__(self):
         self.chat_id = None
         self.consecutive_fails = 0
         self.scheduler = AsyncIOScheduler(timezone=pytz.UTC)
         self.tg_app = Application.builder().token(BOT_TOKEN).build()
-        self.web_app = web.Application()
-        self.web_app.add_routes([web.get('/', self.health_check)])
-
-    async def health_check(self, request):
-        return web.json_response({"status": "ok", "service": "CBSE Result Bot"})
-
-    async def run_web_server(self):
-        runner = web.AppRunner(self.web_app)
-        await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', PORT)
-        await site.start()
-        logging.info(f"Health check server running on port {PORT}")
+        
+        # Create custom Tornado web application
+        self.web_app = tornado.web.Application([
+            (r"/", HealthCheckHandler),
+            (r"/webhook", self.tg_app.updater.dispatcher.process_webhook_update)
+        ])
 
     async def init(self):
         await self.setup_handlers()
         self.setup_scheduler()
-        await self.tg_app.initialize()
-        await self.tg_app.start()
+        
+        # Configure webhook with custom web application
         await self.tg_app.updater.start_webhook(
             listen="0.0.0.0",
             port=PORT,
-            url_path="webhook",
-            webhook_url=WEBHOOK_URL
+            web_app=self.web_app
         )
-        logging.info("Telegram bot started with webhooks")
+        await self.tg_app.bot.set_webhook(WEBHOOK_URL)
+        logging.info("Telegram webhook configured")
 
     async def get_chat_id(self, update: Update):
         if not self.chat_id:
@@ -145,9 +144,8 @@ class ResultMonitor:
 
 async def main():
     monitor = ResultMonitor()
-    await monitor.run_web_server()  # Start health check server
-    await monitor.init()  # Initialize Telegram bot
-    await asyncio.Future()  # Run forever
+    await monitor.init()
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
     asyncio.run(main())
