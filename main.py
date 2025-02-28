@@ -19,7 +19,7 @@ CBSE_DOMAINS = [
     "https://cbse.gov.in/cbsenew/results.html"
 ]
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = os.environ.get("token")
 PORT = int(os.environ.get("PORT", 5000))
 WEBHOOK_URL = f"{os.environ.get('RENDER_EXTERNAL_URL')}/webhook"
 
