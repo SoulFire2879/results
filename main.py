@@ -86,7 +86,7 @@ class ResultMonitor:
 
     async def check_alive(self, update: Update, context: CallbackContext):
         if self.chat_id and self.scheduler.get_job("result_check"):
-            next_run = self.scheduler.get_job("result_check").next_run_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+            next_run = self.scheduler.get_job("result_check").next_run_time.strftime("%Y-%m-%d %H:%M:%S IST")
             await update.message.reply_text(f"✅ Bot is running! Next check at: {next_run}")
         else:
             await update.message.reply_text("No chat registered yet.")
