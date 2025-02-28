@@ -82,7 +82,7 @@ def fetch_page(url):
 def get_latest_results_url():
     for domain in CBSE_DOMAINS:
         try:
-            html = fetch_page(domain)
+            html = fetch_page(domain.strip())
             soup = BeautifulSoup(html, "html.parser")
             for link in soup.find_all("a", href=True):
                 href = link["href"].strip()
