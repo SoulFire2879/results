@@ -10,7 +10,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from tenacity import retry, stop_after_attempt, wait_exponential
 import pytz
-from quart import Quart, jsonify
+from aiohttp import web
 
 # Configuration
 CBSE_DOMAINS = [
@@ -34,15 +34,24 @@ USER_AGENTS = [
 logging.basicConfig(level=logging.INFO,
                    format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Create Quart app for health checks
-quart_app = Quart(__name__)
-
 class ResultMonitor:
     def __init__(self):
         self.chat_id = None
         self.consecutive_fails = 0
         self.scheduler = AsyncIOScheduler(timezone=pytz.UTC)
         self.tg_app = Application.builder().token(BOT_TOKEN).build()
+        self.web_app = web.Application()
+        self.web_app.add_routes([web.get('/', self.health_check)])
+
+    async def health_check(self, request):
+        return web.json_response({"status": "ok", "service": "CBSE Result Bot"})
+
+    async def run_web_server(self):
+        runner = web.AppRunner(self.web_app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', PORT)
+        await site.start()
+        logging.info(f"Health check server running on port {PORT}")
 
     async def init(self):
         await self.setup_handlers()
@@ -55,6 +64,7 @@ class ResultMonitor:
             url_path="webhook",
             webhook_url=WEBHOOK_URL
         )
+        logging.info("Telegram bot started with webhooks")
 
     async def get_chat_id(self, update: Update):
         if not self.chat_id:
@@ -133,21 +143,11 @@ class ResultMonitor:
         self.tg_app.add_handler(CommandHandler("start", self.start))
         self.tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.check_alive))
 
-@quart_app.route('/')
-async def health_check():
-    return jsonify({"status": "ok", "service": "CBSE Result Bot"}), 200
-
 async def main():
-    # Start Quart server for health checks
-    quart_task = asyncio.create_task(quart_app.run_task(host='0.0.0.0', port=PORT))
-    
-    # Initialize bot
     monitor = ResultMonitor()
-    await monitor.init()
-    
-    # Keep running
-    while True:
-        await asyncio.sleep(3600)  # Keep event loop alive
+    await monitor.run_web_server()  # Start health check server
+    await monitor.init()  # Initialize Telegram bot
+    await asyncio.Future()  # Run forever
 
 if __name__ == "__main__":
     asyncio.run(main())
